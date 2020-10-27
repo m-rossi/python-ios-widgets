@@ -82,7 +82,7 @@ rki = download_arcgis_data(
         "AnzahlFall",
     ),
     filters=(
-        ("NeuerFall IN(1,-1)"),
+        "NeuerFall IN(1,-1)",
     ),
     params={
         "outStatistics": [{
