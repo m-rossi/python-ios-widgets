@@ -12,7 +12,7 @@ def download_arcgis_data(
         date_fields=None,
         filters=None,
         batch_size=5000,
-        aggregate_by_date=True,
+        params={},
 ):
     # transform filters to where condition
     if filters is not None:
@@ -20,7 +20,9 @@ def download_arcgis_data(
         for f in filters:
             if len(where) > 0:
                 where += " AND "
-            if isinstance(f[2], date):
+            if isinstance(f, str):
+                where += f
+            elif isinstance(f[2], date):
                 where += f"{f[0]} {f[1]} DATE '{datetime(f[2].year, f[2].month, f[2].day)}'"
             elif isinstance(f[2], datetime):
                 where += f"{f[0]} {f[1]} DATE '{f[2]}'"
@@ -28,15 +30,20 @@ def download_arcgis_data(
                 where += f"{f[0]} {f[1]} '{f[2]}'"
     else:
         where = "1=1"
+        
+    # transform lists and dicts
+    for key in params:
+        if isinstance(params[key], (list, dict)):
+            params[key] = str(params[key])
 
     # define query parameter
-    params = {
+    params.update({
         "outSR": 4326,
         "returnGeometry": False,
         "f": "json",
         "outFields": ",".join(out_fields),
         "where": where,
-    }
+    })
 
     # download all datasets
     data = []
@@ -64,50 +71,27 @@ def download_arcgis_data(
     # single dataset responses will be simplified
     if len(data) == 1:
         data = data[0]['attributes']
-    # aggregate by a date
-    if aggregate_by_date and date_fields is not None and len(date_fields) == 1:
-        # prepare aggreagted data
-        agg_data = {}
-        # aggregation only on one date field
-        df = date_fields[0]
-        # transform output fields and remove date field
-        fields = list(out_fields)
-        fields.remove(df)
-
-        # iterate datasets
-        for ds in data:
-            for f in fields:
-                # initizalize aggregated data
-                if ds["attributes"][df] not in agg_data:
-                    agg_data[ds["attributes"][df]] = {}
-                # append data if field exists
-                if f in agg_data[ds["attributes"][df]]:
-                    agg_data[ds["attributes"][df]][f] += ds["attributes"][f]
-                else:
-                    agg_data[ds["attributes"][df]][f] = ds["attributes"][f]
-        return agg_data
-    else:
-        return data
+    
+    return data
 
 
 # download data
 rki = download_arcgis_data(
-    base_url=
-    "https://services7.arcgis.com/mOBPykOjAyBO2ZKk/arcgis/rest/services/RKI_COVID19/FeatureServer/0/query",
+    base_url="https://services7.arcgis.com/mOBPykOjAyBO2ZKk/arcgis/rest/services/RKI_COVID19/FeatureServer/0/query",
     out_fields=(
-        "Meldedatum",
         "AnzahlFall",
     ),
-    date_fields=(
-        "Meldedatum",
-    ),
     filters=(
-        ("Meldedatum", ">=", datetime.today() - timedelta(1)),
+        ("NeuerFall IN(1,-1)"),
     ),
+    params={
+        "outStatistics": [{
+            "statisticType": "sum",
+            "onStatisticField": "AnzahlFall",
+            "outStatisticFieldName": "AnzahlFall",
+        }],
+    },
 )
-rki_status = sorted(list(rki.keys()))[-1]
-rki = rki[rki_status]
-rki["Datenstand"] = rki_status
 
 # https://kreispaderborn.hub.arcgis.com/datasets/9020e4c3f15b40a6807cf282504e26f2_4
 pb = download_arcgis_data(
@@ -134,7 +118,6 @@ pb_refresh = download_arcgis_data(
     date_fields=(
         "DATUM",
     ),
-    aggregate_by_date=False,
 )
 pb["AKTUALISIERUNG"] = pb_refresh["DATUM"]
 
@@ -162,12 +145,6 @@ layout.add_row([
     wd.Text(
         f"{rki['AnzahlFall']}",
     ),
-])
-layout.add_row([
-    wd.Text(
-        f"Aktualisierung: Vor {int((datetime.now() - rki['Datenstand']).total_seconds() / 60 / 60)} h",
-        font=wd.Font.system_font_of_size(wd.FONT_SYSTEM_SIZE / 2),
-    )
 ])
 widget.small_layout.add_vertical_spacer()
 layout.add_row([
